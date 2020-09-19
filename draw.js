@@ -59,20 +59,19 @@ class Shard {
     ctx.fillStyle = 'red';
     ctx.fill(new Path2D(this.pathData), 'evenodd');
     ctx.fillStyle = 'black';
-    ctx.fillRect(this.x-5, this.y-5, 10, 10);
+    /*ctx.fillRect(this.x-5, this.y-5, 10, 10);
     
     ctx.beginPath();
     ctx.moveTo(this.x, this.y);
     ctx.lineTo(this.initX, this.initY);
-    ctx.stroke();
+    ctx.stroke();*/
   }
 
   move(x, y) {
     this.x = x;
     this.y = y;
-    this.pathCommands[0].x = x + this.xOffset;
-    this.pathCommands[0].y = y + this.yOffset;
-    this.pathData = cmdToPathData(this.pathCommands);
+    let newPosString =  `${x + this.xOffset} ${y + this.yOffset}`;
+    this.pathData = this.pathData.replace(/[\d-.]+ [\d-.]+/, newPosString);
   }
 
   moveRel(x, y) {
@@ -115,25 +114,28 @@ class Shard {
   }
 
   update() {
-    const { dist, dir } = this.getMouseVector();
+    const mouseVector = this.getMouseVector();
+    const mouseDist = mouseVector.dist, mouseDir = mouseVector.dir;
     let forceX, forceY;
-    if (dist && dir && dist < this.shoveRadius) {
-      forceX = 1/dist * Math.cos(dir) * 100;
-      forceY = 1/dist * Math.sin(dir) * 100;
+    if (mouseDist && mouseDir && mouseDist < this.shoveRadius) {
+      forceX = 1/mouseDist * Math.cos(mouseDir) * 500;
+      forceY = 1/mouseDist * Math.sin(mouseDir) * 500;
     } else {
       const { dist, dir } = this.getInitPosVector();
       forceX = dist * Math.cos(dir) / 50;
       forceY = dist * Math.sin(dir) / 50;
-      //console.log(`DIST: ${dist}\nDIR: ${dir}\nforceX: ${forceX}\nforceY: ${forceY}`);
+      const newMouseVector = this.getVector(
+        {x: mouseX, y: mouseY}, 
+        {x: this.x+forceX, y: this.y+forceY}
+      );
+      if (newMouseVector.dist < this.shoveRadius) {
+        forceX = 0;
+        forceY = 0;
+      }
     }
-    forceX = restrictMagnitude(forceX, 5);
-    forceY = restrictMagnitude(forceY, 5);
     this.moveRel(forceX, forceY);
     this.constrainToBounds();
     this.draw();
-
-    // TODO: when distance from initx/y gets to a certain dist, stop movement
-    // For some reason, when letter moves to the RIGHT or DOWN, it immediately goes back to orig position on those axes
   }
 }
 
@@ -211,7 +213,7 @@ function animate() {
   }
   animateTimes++;
   //return;
-  //if (animateTimes < 100)
+  //if (animateTimes < 0)
     setTimeout(animate, 10);
 }
 
