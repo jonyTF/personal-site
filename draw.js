@@ -1,6 +1,7 @@
 // MY IDEA: cut the "Jonathan Liu" text randomly into chunks, and then make it assemble itself.
 // one way: Use rectangles/randomly generated triangles, and then perform a subtract operation with the text as a mask
 // another way: slice the original path into chunks
+// SLICING/clipping: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/clip
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -8,57 +9,34 @@ canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 class Shard {
-  constructor(pathCommands) {
-    if (pathCommands[0].type !== 'M') {
-      console.error('Path needs to begin with a move command!');
-      return;
-    }
-    
-    // Make positioning relative and generate bounding box
-    let prevX = pathCommands[0].x;
-    let prevY = pathCommands[0].y;
-    let minX = prevX, maxX = prevX;
-    let minY = prevY, maxY = prevY;
-    for (let i = 1; i < pathCommands.length; i++) {
-      if (pathCommands[i].type !== 'Z') {
-        pathCommands[i].type = pathCommands[i].type.toLowerCase();
-        let oldX = pathCommands[i].x;
-        let oldY = pathCommands[i].y;
-        for (const key of Object.keys(pathCommands[i])) {
-          if (key !== 'type') {
-            if (key.includes('x')) {
-              pathCommands[i][key] -= prevX;
-            } else if (key.includes('y')) {
-              pathCommands[i][key] -= prevY;
-            }
-          }
-        }
-        prevX = oldX;
-        prevY = oldY;
-        if (oldX < minX) minX = oldX;
-        if (oldX > maxX) maxX = oldX;
-        if (oldY < minY) minY = oldY;
-        if (oldY > maxY) maxY = oldY;
-      }
-    }
-
+  constructor(pivotX, pivotY, pathCommands, mask) {
     // Assign instance variables
-    this.x = (minX + maxX)/2;
+    this.x = pivotX;
     this.initX = this.x;
     this.xOffset = pathCommands[0].x - this.x;
-    this.y = (minY + maxY)/2;
+    this.y = pivotY;
     this.initY = this.y;
     this.yOffset = pathCommands[0].y - this.y;
-    this.shoveRadius = 100; // The radius with which to move letter around mouse
+    this.shoveRadius = 50; // The radius with which to move letter around mouse
     this.pathCommands = pathCommands;
     this.pathData = cmdToPathData(this.pathCommands);
+    this.mask = mask;
+    this.color = 'black';
   } 
 
   draw() {
-    //ctx.fillStyle = `rgb(${Math.random()*255}, ${Math.random()*255}, ${Math.random()*255})`;
-    ctx.fillStyle = 'red';
+    ctx.save();
+    
+    let maskPath = new Path2D();
+    //maskPath.rect(this.mask.x, this.mask.y, this.mask.w, this.mask.h);
+    maskPath.rect(this.x-this.mask.w/2, this.y-this.mask.h/2, this.mask.w, this.mask.h);
+    ctx.clip(maskPath);
+    
+    ctx.fillStyle = this.color;
     ctx.fill(new Path2D(this.pathData), 'evenodd');
-    ctx.fillStyle = 'black';
+    
+    ctx.restore();
+
     /*ctx.fillRect(this.x-5, this.y-5, 10, 10);
     
     ctx.beginPath();
@@ -116,14 +94,15 @@ class Shard {
   update() {
     const mouseVector = this.getMouseVector();
     const mouseDist = mouseVector.dist, mouseDir = mouseVector.dir;
+    const initPosVector = this.getInitPosVector();
+    const initPosDist = initPosVector.dist, initPosDir = initPosVector.dir;
     let forceX, forceY;
     if (mouseDist && mouseDir && mouseDist < this.shoveRadius) {
       forceX = 1/mouseDist * Math.cos(mouseDir) * 500;
       forceY = 1/mouseDist * Math.sin(mouseDir) * 500;
     } else {
-      const { dist, dir } = this.getInitPosVector();
-      forceX = dist * Math.cos(dir) / 50;
-      forceY = dist * Math.sin(dir) / 50;
+      forceX = initPosDist * Math.cos(initPosDir) / 10;
+      forceY = initPosDist * Math.sin(initPosDir) / 10;
       const newMouseVector = this.getVector(
         {x: mouseX, y: mouseY}, 
         {x: this.x+forceX, y: this.y+forceY}
@@ -134,8 +113,86 @@ class Shard {
       }
     }
     this.moveRel(forceX, forceY);
+    this.color = `rgb(0, 0, ${initPosDist/this.shoveRadius * 200})`
+    //console.log(this.color);
     this.constrainToBounds();
     this.draw();
+  }
+}
+
+class Letter {
+  constructor(pathCommands) {
+    if (pathCommands[0].type !== 'M') {
+      console.error('Path needs to begin with a move command!');
+      return;
+    }
+    
+    // Make positioning relative and generate bounding box
+    let prevX = pathCommands[0].x;
+    let prevY = pathCommands[0].y;
+    let minX = prevX, maxX = prevX;
+    let minY = prevY, maxY = prevY;
+    for (let i = 1; i < pathCommands.length; i++) {
+      if (pathCommands[i].type !== 'Z') {
+        let oldX = pathCommands[i].x;
+        let oldY = pathCommands[i].y;
+
+        // Remove path command if does not move at all
+        if (oldX === prevX && oldY === prevY) {
+          pathCommands.splice(i, 1);
+          i--;
+          continue;
+        }
+
+        pathCommands[i].type = pathCommands[i].type.toLowerCase();
+        for (const key of Object.keys(pathCommands[i])) {
+          if (key !== 'type') {
+            if (key.includes('x')) {
+              pathCommands[i][key] -= prevX;
+            } else if (key.includes('y')) {
+              pathCommands[i][key] -= prevY;
+            }
+          }
+        }
+        prevX = oldX;
+        prevY = oldY;
+        if (oldX < minX) minX = oldX;
+        if (oldX > maxX) maxX = oldX;
+        if (oldY < minY) minY = oldY;
+        if (oldY > maxY) maxY = oldY;
+      }
+    }
+
+    const cols = 5;
+    const rows = 5;
+    const width = (maxX-minX);
+    const height = (maxY-minY);
+    const shardW = width/cols;
+    const shardH = height/rows;
+    const padAmt = 5;
+
+    this.shards = [];
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let x = minX + c*shardW - padAmt;
+        let y = minY + r*shardH - padAmt;
+        let mask = {x, y, w: shardW+padAmt*2, h: shardH+padAmt*2};
+        this.shards.push(new Shard(x+shardW/2, y+shardH/2, pathCommands, mask)); 
+      }
+    }
+  }
+
+  draw() {
+    for (let i = 0; i < this.shards.length; i++) {
+      this.shards[i].draw();
+    }
+  }
+
+  update() {
+    for (let i = 0; i < this.shards.length; i++) {
+      this.shards[i].update();
+    }
   }
 }
 
@@ -189,9 +246,9 @@ function init() {
 
       curLetterIndex++;
 
-      let shard = new Shard(curShape);
-      shard.draw();
-      letters.push(shard);
+      let letter = new Letter(curShape);
+      letter.draw();
+      letters.push(letter);
 
       curShape = [];
     }
