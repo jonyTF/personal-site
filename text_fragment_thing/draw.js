@@ -5,6 +5,7 @@
 
 // TODO: make it less stiff
 // Solution: vector subtraction, subtract vector going in by vector going out
+// TODO: at the beginning, make the text fade in with the shards randomly, from left to right. Fade in + move from left to right 
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -13,6 +14,13 @@ canvas.height = window.innerHeight;
 
 class Shard {
   constructor(pivotX, pivotY, pathCommands, mask) {
+    /*
+      pivotX | double       : the center X position of shard
+      pivotY | double       : the center Y position of shard
+      pathCommands | Array  : array containing path commands of the letter this shard is a part of
+      mask | {x,y,w,h}      : the mask to apply to the shard, (x,y) signify the top left of shard   
+    */
+
     // Assign instance variables
     this.x = pivotX;
     this.initX = this.x;
@@ -25,9 +33,11 @@ class Shard {
     this.pathData = cmdToPathData(this.pathCommands);
     this.mask = mask;
     this.color = 'black';
+    this.opacity = '0.5';
   } 
 
   draw() {
+    /* Draw letter with a mask outlining the shard applied */
     ctx.save();
     
     let maskPath = new Path2D();
@@ -49,6 +59,7 @@ class Shard {
   }
 
   move(x, y) {
+    /* Move shard to position (x, y) by editing the path data */
     this.x = x;
     this.y = y;
     let newPosString =  `${x + this.xOffset} ${y + this.yOffset}`;
@@ -60,13 +71,15 @@ class Shard {
   }
 
   getMouseVector() {
-    return Vector2.subtract(
+    /* Get vector from mouse to current position */
+      return Vector2.subtract(
       new Vector2(this.x, this.y),
       new Vector2(mouseX, mouseY),
     ); 
   }
 
   getInitPosVector() {
+    /* Get vector from current position to initial position */
     return Vector2.subtract(
       new Vector2(this.initX, this.initY),
       new Vector2(this.x, this.y),
@@ -74,6 +87,7 @@ class Shard {
   }
 
   constrainToBounds() {
+    /* Constrains shard to only move around mouse shove radius */
     const {dist, dir} = this.getInitPosVector();
     if (dist > this.shoveRadius) {
       const diff = dist - this.shoveRadius;
@@ -83,7 +97,22 @@ class Shard {
     }
   }
 
+  setOpacity(opacity) {
+    this.opacity = opacity;
+  }
+
+  increaseOpacity(amt) {
+    /* Increases opacity until it reaches 1, whereupon it returns false */
+    if (this.opacity + amt > 1) {
+      this.opacity = 1;
+      return false;
+    }
+    this.opacity += amt;
+    return true;
+  }
+
   update() {
+    /* Calculate movement of shard based on mouse position */
     const mouseVector = this.getMouseVector();
     const mouseDist = mouseVector.getMagnitude(), mouseDir = mouseVector.getDirection();
     const initPosVector = this.getInitPosVector();
@@ -91,11 +120,11 @@ class Shard {
     let forceX = 0, forceY = 0;
     if (mouseDist && mouseDir) {
       if (mouseDist < this.shoveRadius) {
-        forceX = 1/mouseDist * Math.cos(mouseDir) * 500;
-        forceY = 1/mouseDist * Math.sin(mouseDir) * 500;
+        forceX = 1/mouseDist * Math.cos(mouseDir) * 100;
+        forceY = 1/mouseDist * Math.sin(mouseDir) * 100;
       } else {
-        const diffVector = Vector2.subtract(initPosVector, mouseVector);  
-        const diffDist = diffVector.getMagnitude(), diffDir = diffVector.getDirection();
+        //const diffVector = Vector2.subtract(initPosVector, mouseVector);  
+        //const diffDist = diffVector.getMagnitude(), diffDir = diffVector.getDirection();
         //console.log('dist: ', diffDist, 'dir: ', diffDir);
         forceX = initPosDist * Math.cos(initPosDir) / 10;
         forceY = initPosDist * Math.sin(initPosDir) / 10;
@@ -112,7 +141,7 @@ class Shard {
       }
     }
     this.moveRel(forceX, forceY);
-    this.color = `rgb(0, 0, ${initPosDist/this.shoveRadius * 200})`
+    this.color = `rgba(0, 0, ${initPosDist/this.shoveRadius * 200}, ${this.opacity})`
     //console.log(this.color);
     this.constrainToBounds();
     this.draw();
@@ -168,7 +197,7 @@ class Letter {
     const height = (maxY-minY);
     const shardW = width/cols;
     const shardH = height/rows;
-    const padAmt = 5;
+    const padAmt = 0.3;
 
     this.shards = [];
 
@@ -179,6 +208,16 @@ class Letter {
         let mask = {x, y, w: shardW+padAmt*2, h: shardH+padAmt*2};
         this.shards.push(new Shard(x+shardW/2, y+shardH/2, pathCommands, mask)); 
       }
+    }
+
+    this.initRandom();
+  }
+
+  initRandom() {
+    /* Randomly initializes shard position to make it fade in */
+    for (let i = 0; i < this.shards.length; i++) {
+      this.shards[i].moveRel(100+-1*Math.random()*200, 0);
+      this.shards[i].setOpacity(0);
     }
   }
 
@@ -191,6 +230,8 @@ class Letter {
   update() {
     for (let i = 0; i < this.shards.length; i++) {
       this.shards[i].update();
+      // TODO: Maybe change this
+      this.shards[i].increaseOpacity(0.02);
     }
   }
 }
@@ -257,8 +298,8 @@ function init() {
   // separate path into chunks of three
   // Add a Z to the end
   // Fill in the holes by combining the last three points of each shard into another shard
-  const pathData = path.toPathData();
-  ctx.stroke(new Path2D(pathData));
+  //const pathData = path.toPathData();
+  //ctx.stroke(new Path2D(pathData));
 }
 
 var animateTimes = 0;
@@ -275,9 +316,10 @@ function animate() {
 
 // Global variables
 var font = null;
-var mouseX, mouseY;
+var mouseX = 0, mouseY = 0;
 var letters = [];
 
+// Load font
 opentype.load('fonts/Roboto-Black.ttf', function(err, font) {
   if (err) {
     alert('Font could not be loaded: ', err);
