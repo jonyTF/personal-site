@@ -3,6 +3,9 @@
 // another way: slice the original path into chunks
 // SLICING/clipping: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/clip
 
+// TODO: make it less stiff
+// Solution: vector subtraction, subtract vector going in by vector going out
+
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth;
@@ -56,29 +59,18 @@ class Shard {
     this.move(this.x + x, this.y + y);
   }
 
-  getVector(from, to) {
-    // From and to are objects of the form:
-    // { x, y }
-    const dx = to.x - from.x;
-    const dy = to.y - from.y; 
-    return {
-      dist: Math.sqrt(dx*dx + dy*dy),
-      dir: Math.atan2(dy, dx),
-    };
-  }
-
   getMouseVector() {
-    return this.getVector(
-      {x: mouseX, y: mouseY},
-      {x: this.x, y: this.y},
-    );
+    return Vector2.subtract(
+      new Vector2(this.x, this.y),
+      new Vector2(mouseX, mouseY),
+    ); 
   }
 
   getInitPosVector() {
-    return this.getVector(
-      {x: this.x, y: this.y},
-      {x: this.initX, y: this.initY},
-    );
+    return Vector2.subtract(
+      new Vector2(this.initX, this.initY),
+      new Vector2(this.x, this.y),
+    ); 
   }
 
   constrainToBounds() {
@@ -93,23 +85,30 @@ class Shard {
 
   update() {
     const mouseVector = this.getMouseVector();
-    const mouseDist = mouseVector.dist, mouseDir = mouseVector.dir;
+    const mouseDist = mouseVector.getMagnitude(), mouseDir = mouseVector.getDirection();
     const initPosVector = this.getInitPosVector();
-    const initPosDist = initPosVector.dist, initPosDir = initPosVector.dir;
-    let forceX, forceY;
-    if (mouseDist && mouseDir && mouseDist < this.shoveRadius) {
-      forceX = 1/mouseDist * Math.cos(mouseDir) * 500;
-      forceY = 1/mouseDist * Math.sin(mouseDir) * 500;
-    } else {
-      forceX = initPosDist * Math.cos(initPosDir) / 10;
-      forceY = initPosDist * Math.sin(initPosDir) / 10;
-      const newMouseVector = this.getVector(
-        {x: mouseX, y: mouseY}, 
-        {x: this.x+forceX, y: this.y+forceY}
-      );
-      if (newMouseVector.dist < this.shoveRadius) {
-        forceX = 0;
-        forceY = 0;
+    const initPosDist = initPosVector.getMagnitude(), initPosDir = initPosVector.getDirection();
+    let forceX = 0, forceY = 0;
+    if (mouseDist && mouseDir) {
+      if (mouseDist < this.shoveRadius) {
+        forceX = 1/mouseDist * Math.cos(mouseDir) * 500;
+        forceY = 1/mouseDist * Math.sin(mouseDir) * 500;
+      } else {
+        const diffVector = Vector2.subtract(initPosVector, mouseVector);  
+        const diffDist = diffVector.getMagnitude(), diffDir = diffVector.getDirection();
+        //console.log('dist: ', diffDist, 'dir: ', diffDir);
+        forceX = initPosDist * Math.cos(initPosDir) / 10;
+        forceY = initPosDist * Math.sin(initPosDir) / 10;
+        //forceX = diffDist * Math.cos(diffDir) / 10;
+        //forceY = diffDist * Math.sin(diffDir) / 10;
+        const newMouseVector = Vector2.subtract(
+          new Vector2(this.x + forceX, this.y + forceY),
+          new Vector2(mouseX, mouseY),
+        ); 
+        if (newMouseVector.getMagnitude() < this.shoveRadius) {
+          forceX = 0;
+          forceY = 0;
+        }
       }
     }
     this.moveRel(forceX, forceY);
