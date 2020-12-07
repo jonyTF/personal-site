@@ -1,18 +1,7 @@
-// MY IDEA: cut the "Jonathan Liu" text randomly into chunks, and then make it assemble itself.
-// one way: Use rectangles/randomly generated triangles, and then perform a subtract operation with the text as a mask
-// another way: slice the original path into chunks
-// SLICING/clipping: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/clip
+import { Vector2 } from '@/classes/vector.js';
+import { cmdToPathData, RgbToColorString, subtractRgb, multRgbByConst } from '@/utils.js';
 
-// TODO: make it less stiff
-// Solution: vector subtraction, subtract vector going in by vector going out
-// TODO: at the beginning, make the text fade in with the shards randomly, from left to right. Fade in + move from left to right 
-
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-
-class Shard {
+export class Shard {
   constructor(pivotX, pivotY, pathCommands, mask) {
     /*
       pivotX | double       : the center X position of shard
@@ -32,14 +21,19 @@ class Shard {
     this.pathCommands = pathCommands;
     this.pathData = cmdToPathData(this.pathCommands);
     this.mask = mask;
-    this.color = 'black';
+    this.startColor = {r: 255, g: 255, b: 255};
+    this.endColor = {r: 0, g: 0, b: 0};
+    this.colorDiff = subtractRgb(this.startColor, this.endColor)
+    this.color = RgbToColorString(this.startColor);
     this.opacity = '0.5';
   } 
 
   draw() {
     /* Draw letter with a mask outlining the shard applied */
     ctx.save();
-    
+
+    ctx.scale(canvasScale, canvasScale);
+
     let maskPath = new Path2D();
     //maskPath.rect(this.mask.x, this.mask.y, this.mask.w, this.mask.h);
     maskPath.rect(this.x-this.mask.w/2, this.y-this.mask.h/2, this.mask.w, this.mask.h);
@@ -47,15 +41,8 @@ class Shard {
     
     ctx.fillStyle = this.color;
     ctx.fill(new Path2D(this.pathData), 'evenodd');
-    
-    ctx.restore();
 
-    /*ctx.fillRect(this.x-5, this.y-5, 10, 10);
-    
-    ctx.beginPath();
-    ctx.moveTo(this.x, this.y);
-    ctx.lineTo(this.initX, this.initY);
-    ctx.stroke();*/
+    ctx.restore();
   }
 
   move(x, y) {
@@ -120,16 +107,20 @@ class Shard {
     let forceX = 0, forceY = 0;
     if (mouseDist && mouseDir) {
       if (mouseDist < this.shoveRadius) {
-        forceX = 1/mouseDist * Math.cos(mouseDir) * 100;
-        forceY = 1/mouseDist * Math.sin(mouseDir) * 100;
+        // Move shard to radius if too close to mouse
+        const sumVector = Vector2.add(initPosVector, mouseVector);  
+        const sumDist = sumVector.getMagnitude(), sumDir = sumVector.getDirection();
+
+        forceX = 1/sumDist * Math.cos(sumDir) * 50;
+        forceY = 1/sumDist * Math.sin(sumDir) * 50;
       } else {
-        //const diffVector = Vector2.subtract(initPosVector, mouseVector);  
-        //const diffDist = diffVector.getMagnitude(), diffDir = diffVector.getDirection();
+        // Move shard otherwise
+        
         //console.log('dist: ', diffDist, 'dir: ', diffDir);
         forceX = initPosDist * Math.cos(initPosDir) / 10;
         forceY = initPosDist * Math.sin(initPosDir) / 10;
-        //forceX = diffDist * Math.cos(diffDir) / 10;
-        //forceY = diffDist * Math.sin(diffDir) / 10;
+        //forceX = sumDist * Math.cos(sumDir) / 10;
+        //forceY = sumDist * Math.sin(sumDir) / 10;
         const newMouseVector = Vector2.subtract(
           new Vector2(this.x + forceX, this.y + forceY),
           new Vector2(mouseX, mouseY),
@@ -141,15 +132,22 @@ class Shard {
       }
     }
     this.moveRel(forceX, forceY);
-    this.color = `rgba(0, 0, ${initPosDist/this.shoveRadius * 200}, ${this.opacity})`
+    this.color = RgbToColorString(subtractRgb(this.startColor, multRgbByConst(initPosDist/this.shoveRadius, this.colorDiff)));
     //console.log(this.color);
     this.constrainToBounds();
     this.draw();
   }
 }
 
-class Letter {
-  constructor(pathCommands) {
+export class Letter {
+  constructor(pathCommands, options) {
+    /* options is of the form:
+    {
+      xOffset | number : amount to offset letters in x direction
+      yOffset | number : amount to offset letters in y direction   
+    }
+    */
+
     if (pathCommands[0].type !== 'M') {
       console.error('Path needs to begin with a move command!');
       return;
@@ -191,12 +189,24 @@ class Letter {
       }
     }
 
-    const cols = 5;
-    const rows = 5;
+    // Apply offsets
+    if ('xOffset' in options) {
+      pathCommands[0].x += options.xOffset;
+      minX += options.xOffset;
+      maxX += options.xOffset;
+    }
+    if ('yOffset' in options) {
+      pathCommands[0].y += options.yOffset;
+      minY += options.yOffset;
+      maxY += options.yOffset;
+    }
+
     const width = (maxX-minX);
     const height = (maxY-minY);
-    const shardW = width/cols;
-    const shardH = height/rows;
+    const shardW = 15;
+    const shardH = 15;
+    const cols = width/shardW+1;
+    const rows = height/shardH+1;
     const padAmt = 0.3;
 
     this.shards = [];
@@ -209,8 +219,6 @@ class Letter {
         this.shards.push(new Shard(x+shardW/2, y+shardH/2, pathCommands, mask)); 
       }
     }
-
-    this.initRandom();
   }
 
   initRandom() {
@@ -235,125 +243,3 @@ class Letter {
     }
   }
 }
-
-function restrictMagnitude(value, magnitude) {
-  if (Math.abs(value) > magnitude) {
-    return value > 0 ? magnitude : -magnitude;  
-  }
-  return value;
-}
-
-function pathCommandsToString(pathCommands) {
-  let s = '[';
-  for (let i = 0; i < pathCommands.length; i++) {
-    s += '{'
-    let keys = Object.keys(pathCommands[i]);
-    console.log(pathCommands[i])
-    for (let j = 0; j < keys.length; j++) {
-      let key = keys[j]
-      s += `"${key}":` 
-      let val = pathCommands[i][key];
-      if (typeof val === 'string')
-        val = `"${val}"`
-      s += val
-      if (j !== keys.length-1) {
-        s += ','
-      }
-    } 
-    s += '}'
-    if (i !== pathCommands.length-1)
-      s += ','
-  }
-  s += ']'
-  return s
-}
-
-function cmdToPathData(cmd) {
-  let pathData = '';
-  for (let i = 0; i < cmd.length; i++) {
-    let s = '';
-    for (const val of Object.values(cmd[i])) {
-      s += val + ' ';
-    }
-    pathData += s;
-  }
-  return pathData;
-}
-
-function init() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const path = font.getPath('Jonathan Liu', 0, 120, 150);
-  const multPaths = {
-    1: {numPaths: 2},
-    3: {numPaths: 2},
-    6: {numPaths: 2},
-    9: {numPaths: 2}
-  };
-
-  //document.getElementById('test').innerHTML = pathCommandsToString(path.commands);
-
-  ctx.fillStyle = 'rgb(0, 0, 0)';
-  ctx.strokeStyle = 'rgb(0, 0, 0)';
-  
-  let curShape = [];
-  let curLetterIndex = 0;
-  let curPathIndex = 0;
-  for (let i = 0; i < path.commands.length; i++) {
-    curShape.push(path.commands[i]);
-    if (path.commands[i].type === 'Z') {
-      if (multPaths[curLetterIndex]) {
-        if (curPathIndex+1 < multPaths[curLetterIndex].numPaths) {
-          curPathIndex++;
-          continue;
-        } else {
-          curPathIndex = 0;
-        }
-      }
-
-      curLetterIndex++;
-
-      let letter = new Letter(curShape);
-      letter.draw();
-      letters.push(letter);
-
-      curShape = [];
-    }
-  }
-}
-
-var animateTimes = 0;
-function animate() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  for (let i = 0; i < letters.length; i++) {
-    letters[i].update();
-  }
-  animateTimes++;
-  //return;
-  //if (animateTimes < 0)
-    setTimeout(animate, 10);
-}
-
-// Global variables
-var font = null;
-var mouseX = 0, mouseY = 0;
-var letters = [];
-
-// Load font
-opentype.load('fonts/Roboto-Black.ttf', function(err, font) {
-  if (err) {
-    alert('Font could not be loaded: ', err);
-  } else {
-    window.font = font;
-    window.addEventListener('resize', () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    });
-    window.addEventListener('mousemove', (e) => {
-      window.mouseX = e.x;
-      window.mouseY = e.y;
-    });
-    init();
-    animate();
-  }
-});
