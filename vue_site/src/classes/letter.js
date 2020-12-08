@@ -21,8 +21,8 @@ export class Shard {
     this.pathCommands = pathCommands;
     this.pathData = cmdToPathData(this.pathCommands);
     this.mask = mask;
-    this.startColor = {r: 255, g: 255, b: 255};
-    this.endColor = {r: 0, g: 0, b: 0};
+    this.startColor = {r: 0, g: 0, b: 0};
+    this.endColor = {r: 255, g: 255, b: 255};
     this.colorDiff = subtractRgb(this.startColor, this.endColor)
     this.color = RgbToColorString(this.startColor);
     this.opacity = '0.5';
